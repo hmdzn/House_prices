@@ -1,0 +1,196 @@
+---
+title: "AllianzP"
+author: "Hamada ZEINE"
+date: "22 février 2019"
+output: html_document
+---
+
+
+# Import des données et nettoyage
+
+```{r}
+
+# Importation des données et première visualisation
+
+HSdata <- read.csv("housing.csv",sep=";",header=T)
+
+head(HSdata)
+
+```
+
+
+```{r}
+
+# on ne prende pas compte de la première colonne
+hSdata=HSdata[,2:dim(HSdata)[2]]
+#Structure des données, type de variables
+str(hSdata)
+
+#Résumé statistique
+summary(hSdata)
+
+```
+
+
+```{r}
+
+#Données manquantes
+sum(is.na(hSdata)) # donc on n'a pas de valeurs manquantes
+
+```
+
+
+
+
+# Corrélation & Visualisation
+```{r}
+library(psych)
+
+# Visualisation de la distribution de la variable quantitative à prédire en fonction des différentes valeurs des variables catégorielles
+boxplot(hSdata$price ~ hSdata$driveway) # significative
+boxplot(hSdata$price ~ hSdata$recroom) # significative
+boxplot(hSdata$price ~ hSdata$fullbase) # significative
+boxplot(hSdata$price ~ hSdata$airco) # significative
+boxplot(hSdata$price ~ hSdata$prefarea) # significative
+
+
+
+# Visualisation simultanée de toutes les variables continues
+pairs.panels(subset(hSdata,select=c(1:5,11)))
+
+# on remarque qu'il n'y a pas de forte corrélation entre les variables quantitatives 
+
+```
+
+
+
+# Modélisation
+
+Problématique : prédiction de la variable price
+
+
+## Transformation des variables catégorielles 
+
+```{r}
+
+hSdata$driveway <- as.integer(hSdata$driveway)-1
+hSdata$recroom <- as.integer(hSdata$recroom) -1
+hSdata$fullbase <- as.integer(hSdata$fullbase) -1
+hSdata$airco <- as.integer(hSdata$airco) -1 
+hSdata$prefarea <- as.integer(hSdata$prefarea) -1
+hSdata$gashw <- as.integer(hSdata$gashw) -1 
+
+str(hSdata)
+ 
+summary(hSdata)
+
+
+```
+
+```{r}
+#  Matrice explicative et à expliquer
+X = as.matrix(hSdata[,2:dim(hSdata)[2]])
+Y = as.matrix(hSdata$price)
+```
+
+```{r}
+# création des ensembles d'aprentissage et de test
+n=dim(hSdata)[1]
+nTest <- n/4;
+ind_test <- sample(1:nrow(hSdata), nTest);  
+testX <- X[ind_test,]
+trainX <- X[-ind_test,]
+testY <- Y[ind_test,]
+trainY <- Y[-ind_test,]
+```
+
+
+```{r}
+
+# Comparing Models :
+
+library(caret)
+library(mlbench)
+library(gbm)
+library(bst)
+library(mboost)
+library(randomForest)
+library(ipred)
+library(e1071)
+library(plyr)
+library(foba) 
+library(elasticnet) 
+library(xgboost) 
+
+# on repete 3 fois une cv avec 10 folds 
+control <- trainControl(method="repeatedcv", number=10, repeats=3)
+
+#Maintenant définissons les modèles 
+
+# Gradiant boosting model nrounds 
+mboost <- train(trainX, trainY, method="gbm",trControl=control);
+# Extreme Gradiant boosting model
+mlxboost <- train(trainX, trainY, method="xgbTree",trControl=control);
+# Bagging
+mbagg <- train(trainX, trainY, method="treebag",trControl=control);
+# Random Forest
+mrf <- train(trainX, trainY, method="rf", prox=TRUE, trControl=control,  coob = TRUE, ntree = 50);
+# linear model
+mlM <- train(trainX, trainY, method="lm",trControl=control);
+# Ridge avec Selection de Variables 
+mlmfoba <- train(trainX, trainY, method="foba",trControl=control);
+# Lasso
+mlmlasso <- train(trainX, trainY, method="lasso",trControl=control);
+
+
+
+# On collecte avec resamples
+results <- resamples(list(Boosting=mboost, XBoosting=mlxboost, Bagging=mbagg, RandomForest=mrf, LinearModel = mlM, Ridge=mlmfoba,Lasso=mlmlasso))
+
+# On affiche la comparaison suivant les critères RMSE et Rsquared
+#  functions for visualizing resampling results across models
+bwplot(results, metric = c("RMSE","MAE","Rsquared"))
+# 
+dotplot(results, metric = c("RMSE","MAE","Rsquared"))
+```
+
+
+
+```{r}
+# Testons les modèles
+
+# Linear model
+ylm<-predict(mlM,testX)
+mean((testY-ylm)^2)^(0.5)
+mean(abs(testY-ylm))^(0.5)
+# Ridge
+ylrd<-predict(mlmfoba,testX)
+mean((testY-ylrd)^2)^(0.5)
+mean(abs(testY-ylrd))^(0.5)
+# Lasso 
+ylmls<-predict(mlmlasso,testX)
+mean((testY-ylmls)^2)^(0.5)
+mean(abs(testY-ylmls))^(0.5)
+# Extrme gradient boosting
+yxb<-predict(mlxboost,testX)
+mean((testY-yxb)^2)^(0.5)
+mean(abs(testY-yxb))^(0.5)
+# Random forest
+ymrf<-predict(mrf,testX)
+mean((testY-ymrf)^2)^(0.5)
+mean(abs(testY-ymrf))^(0.5)
+
+```
+
+
+
+
+# Conclusions
+
+Suivant les résultats de tests, on peut donc en conclure que :
+
+Une régression Ridge entrainée avec 10-folds cross validation pour obtenir le meilleur lambda et pour faire une sélection de variables, est le meilleur modèle :
+- Pour la MAE
+- Pour la RMSE qui penalise plus que la MAE
+
+
